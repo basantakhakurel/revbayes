@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=RevStudio
+GenericName=RevBayes environment
+Comment=Editor, console and workspace browser for RevBayes
+Exec=RevStudio %F
+Icon=revstudio
+Terminal=false
+Categories=Science;Biology;Development;IDE;
+MimeType=text/x-revbayes;

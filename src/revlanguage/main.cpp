@@ -10,6 +10,7 @@
 #include "RbSettings.h"
 #include "RevClient.h"
 #include "RevLanguageMain.h"
+#include "RevServer.h"
 #include "RlCommandLineOutputStream.h"
 #include "RlUserInterface.h"
 #include "StringUtilities.h"
@@ -50,6 +51,9 @@ struct ParsedOptions
     bool echo_script_or_expression = false;  /* Echo commands from scripts or expressions */
 
     bool jupyter = false;
+
+    bool server = false;                     /* Run as a backend for graphical front ends (JSON lines on stdin/stdout) */
+    bool server_info = false;                /* Print the backend's protocol information as JSON and exit */
 
     std::vector<std::string> options;
 
@@ -100,6 +104,8 @@ ParsedOptions parse_cmd_line(int argc, char* argv[])
 
     stage1.add_flag("-v,--version",          options.version,         "Show version and exit");
     stage1.add_flag("-j,--jupyter",          options.jupyter,         "Run in jupyter mode");
+    stage1.add_flag("--server",              options.server,          "Run as a backend for graphical front ends (JSON lines on stdin/stdout)");
+    stage1.add_flag("--server-info",         options.server_info,     "Print the backend protocol information as JSON and exit");
 
     stage1.add_flag("-q,--quiet",            options.force_quiet,               "Hide startup message (if no file or -e expr)");
     stage1.add_flag("-i,--interactive",      options.force_interactive,         "Force interactive (with file or -e expr)");
@@ -216,6 +222,27 @@ int main(int argc, char* argv[])
         exit(0);
     }
 
+    if ( cmd_line.server_info )
+    {
+        std::cout << RevLanguage::RevServer::serverInfo( "RevBayes " + RbVersion().getVersion() ).dump() << std::endl;
+        exit(0);
+    }
+
+    if ( cmd_line.server )
+    {
+        if ( cmd_line.jupyter or cmd_line.force_interactive or cmd_line.script_or_expr() )
+        {
+            std::cerr << "Error: --server cannot be combined with --jupyter, --interactive, a script file or -e expressions.\n";
+            std::exit(1);
+        }
+
+#       ifdef RB_MPI
+        std::cerr << "Error: --server is not supported in MPI builds.\n";
+        MPI_Finalize();
+        std::exit(1);
+#       endif
+    }
+
     /* Set default session properties from cmd line flags */
     auto& settings = RbSettings::userSettings();
     bool continue_on_error = not cmd_line.script_or_expr() or cmd_line.force_continue_on_error;
@@ -241,6 +268,14 @@ int main(int argc, char* argv[])
     {
         RevBayesCore::RandomNumberGenerator *rng = RevBayesCore::GLOBAL_RNG;
         rng->setSeed( cmd_line.seed.value() );
+    }
+
+    /* Backend for graphical front ends: own start-up sequence and own output channels (see RevClient::startServer). */
+    if ( cmd_line.server )
+    {
+        int result = RevClient::startServer();
+        RevClient::shutdown();
+        return result;
     }
 
     /* initialize environment */

@@ -1,0 +1,82 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Linux, system Qt, Debug, ASan+UBSan",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "REVSTUDIO_SANITIZE": "ON" }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux, system Qt, Release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "ci-linux-distro",
+      "displayName": "CI: distro Qt (source floor), Debug, sanitizers",
+      "inherits": "linux-debug"
+    },
+    {
+      "name": "ci-linux-release",
+      "displayName": "CI: pinned Qt from install-qt-action, Release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}" }
+    },
+    {
+      "name": "windows-msvc",
+      "displayName": "Windows, MSVC (run from an x64 Native Tools prompt), Release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "ci-windows-release",
+      "displayName": "CI: pinned Qt from install-qt-action, MSVC, Release",
+      "inherits": "windows-msvc",
+      "cacheVariables": { "CMAKE_PREFIX_PATH": "$env{QT_ROOT_DIR}" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux-debug", "configurePreset": "linux-debug" },
+    { "name": "linux-release", "configurePreset": "linux-release" },
+    { "name": "ci-linux-distro", "configurePreset": "ci-linux-distro" },
+    { "name": "ci-linux-release", "configurePreset": "ci-linux-release" },
+    { "name": "windows-msvc", "configurePreset": "windows-msvc" },
+    { "name": "ci-windows-release", "configurePreset": "ci-windows-release" }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-debug", "configurePreset": "linux-debug",
+      "output": { "outputOnFailure": true }, "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "linux-release", "configurePreset": "linux-release",
+      "output": { "outputOnFailure": true }, "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "ci-linux-distro", "configurePreset": "ci-linux-distro",
+      "output": { "outputOnFailure": true }, "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "ci-linux-release", "configurePreset": "ci-linux-release",
+      "output": { "outputOnFailure": true }, "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "windows-msvc", "configurePreset": "windows-msvc",
+      "output": { "outputOnFailure": true }, "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    },
+    {
+      "name": "ci-windows-release", "configurePreset": "ci-windows-release",
+      "output": { "outputOnFailure": true }, "environment": { "QT_QPA_PLATFORM": "offscreen" }
+    }
+  ]
+}

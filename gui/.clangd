@@ -1,0 +1,4 @@
+# clangd (VS Code, Neovim, ...) finds the compile database of the everyday preset here.
+# Run `cmake --preset linux-debug` once; presets export compile_commands.json.
+CompileFlags:
+  CompilationDatabase: build/linux-debug

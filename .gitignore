@@ -4,6 +4,8 @@ src/*/CMakeLists.txt
 
 # ----------------------------------------------
 /build
+/gui/build/
+/dist/
 projects/cmake/*
 !projects/cmake/README.txt
 !projects/cmake/*.sh

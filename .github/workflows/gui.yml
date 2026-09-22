@@ -1,0 +1,58 @@
+# Checks for the Qt GUI (RevStudio, gui/). Runs only when the GUI or these workflows change; the interpreter's own CI
+# (build.yml) keeps running on every push. See GUI_Implementation_Note.md, section 9.
+name: GUI (Qt6)
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "gui/**"
+      - ".github/workflows/gui.yml"
+      - ".github/workflows/gui-build.yml"
+  pull_request:
+    paths:
+      - "gui/**"
+      - ".github/workflows/gui.yml"
+      - ".github/workflows/gui-build.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: gui-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # The source floor is Qt 6.4 (Ubuntu 24.04's distro Qt). This leg needs no aqt download, is the fastest feedback, and
+  # runs the tests under AddressSanitizer and UndefinedBehaviorSanitizer.
+  linux-distro-qt:
+    name: Linux, distro Qt (source floor and sanitizers)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build qt6-base-dev qt6-svg-dev libgl1-mesa-dev
+
+      - name: Configure
+        working-directory: gui
+        run: cmake --preset ci-linux-distro
+
+      - name: Build
+        working-directory: gui
+        run: cmake --build --preset ci-linux-distro
+
+      - name: Test (offscreen, ASan and UBSan)
+        working-directory: gui
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: ctest --preset ci-linux-distro
+
+  # The release-quality legs: one pinned Qt, deployed and smoke-tested. Shared with release.yml.
+  pinned:
+    name: Pinned Qt (Linux and Windows)
+    uses: ./.github/workflows/gui-build.yml

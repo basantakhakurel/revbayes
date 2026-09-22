@@ -23,6 +23,7 @@ namespace RevClient
     void  shutdown();
     void  startInterpreter();
     void  startJupyterInterpreter();
+    int   startServer();                //!< `rb --server`: backend for graphical front ends; returns the exit code
 }
     
 

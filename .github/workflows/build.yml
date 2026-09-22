@@ -336,6 +336,12 @@ jobs:
         ./testiphy rb
         echo ::endgroup::
 
+    # Protocol used by graphical front ends (see GUI_Implementation_Note.md, section 6.4).
+    # One Linux job is enough for now; the meson install prefix in that job is $HOME/local.
+    - name: Server protocol conformance
+      if: matrix.name == 'ubuntu-gcc-13'
+      run: python3 tests/server/run_conformance.py "$HOME/local/bin/rb"
+
     - name: Upload test files if they failed
       uses: actions/upload-artifact@v4
       if: failure()

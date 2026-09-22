@@ -1,0 +1,24 @@
+RevStudio third-party notices
+=============================
+
+RevStudio is part of RevBayes and is distributed under the GNU General Public License, version 3 (see LICENSE).
+
+Qt
+--
+RevStudio is built with the Qt toolkit (https://www.qt.io) and links it dynamically. Qt is available under the GNU Lesser
+General Public License version 3 (and other licences); the LGPLv3 permits this use provided that the licence text and
+a way to obtain the corresponding Qt source are supplied.
+
+  * The Qt version used by this build is shown in Help > About Qt and in `RevStudio --version`.
+  * Qt source code: https://download.qt.io/official_releases/qt/ (choose the version shown in About Qt)
+  * Qt licence texts: https://www.gnu.org/licenses/lgpl-3.0.html and https://www.gnu.org/licenses/gpl-3.0.html
+
+The Qt libraries in this package are unmodified. You may replace them with a compatible build of the same Qt version.
+
+Libraries bundled with Qt
+-------------------------
+The Qt binaries include, or this package ships alongside them, components under their own licences (for example ICU on
+Linux, and the FreeType, HarfBuzz and libpng code inside Qt). Their licence texts are part of the Qt distribution.
+
+TODO before the first release: replace the general statements above with the exact notices of the Qt version being
+shipped (the licence files that come with the Qt installation), and confirm the wording with a maintainer.

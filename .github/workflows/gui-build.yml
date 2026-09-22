@@ -1,0 +1,134 @@
+# Builds, tests, deploys and smoke-tests the Qt GUI (RevStudio) with ONE pinned Qt on Linux and Windows.
+#
+# A reusable workflow: gui.yml calls it for pull requests, and release.yml will call it for tags (phase 4), so the
+# Qt pin and the deploy logic live in exactly one place and a release build cannot drift from what PRs tested.
+#
+# The GUI is an independent CMake project (gui/) and never links the interpreter; it talks to `rb --server`. The
+# smoke tests therefore use the mock backend that is built with the GUI. See GUI_Implementation_Note.md, sections 9-10.
+name: GUI build (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      retention_days:
+        description: "How long the deployed artifacts are kept"
+        type: number
+        default: 7
+
+permissions:
+  contents: read
+
+env:
+  # THE Qt pin for every pinned leg. Chosen in phase 0 (2026-09-21) with aqtinstall 3.3.0, the version install-qt-action
+  # uses by default:
+  #   * 6.11.x resolves on Linux but NOT on Windows ("Failed to locate XML data for Qt version '6.11.2'"),
+  #   * 6.10.3 and 6.8.3 resolve on both. 6.8.3 is the LTS (upstream-supported to 2029) and the last 6.8 open-source binary.
+  # Re-check with `aqt list-qt <host> desktop --arch <version>` and a tiny `aqt install-qt ... --archives qtsvg` before bumping.
+  QT_VERSION: "6.8.3"
+
+jobs:
+  linux:
+    name: Linux (Ubuntu 22.04, pinned Qt)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      # These are what Qt's prebuilt binaries need, and also what linuxdeploy copies into the bundle
+      # (for example libxcb-cursor), so they must be present on the build machine.
+      - name: Install tools and the libraries the Qt bundle contains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build patchelf xvfb libgl1-mesa-dev libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libegl1 libfontconfig1 libdbus-1-3
+
+      # Only the archives the GUI needs (Core, Gui, Widgets, Svg, Test and the ICU libraries): about 200 MB installed.
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          archives: qtbase qtsvg icu
+          cache: true
+
+      - name: Configure
+        working-directory: gui
+        run: cmake --preset ci-linux-release
+
+      - name: Build
+        working-directory: gui
+        run: cmake --build --preset ci-linux-release
+
+      - name: Test (offscreen)
+        working-directory: gui
+        run: ctest --preset ci-linux-release
+
+      - name: Deploy the Qt runtime into an AppDir
+        run: gui/packaging/linux/make-appdir.sh gui/build/ci-linux-release dist/AppDir
+
+      - name: Smoke test the deployed AppDir (scrubbed environment, real xcb platform)
+        run: gui/packaging/linux/smoke-appdir.sh dist/AppDir "$PWD/gui/build/ci-linux-release/tests/mock-rb"
+
+      # actions/upload-artifact drops file permissions and symlinks, and an AppDir is full of both: ship a tarball.
+      - name: Pack the AppDir
+        run: tar -C dist -czf dist/gui-linux64-appdir.tar.gz AppDir
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-linux64-appdir
+          path: dist/gui-linux64-appdir.tar.gz
+          retention-days: ${{ inputs.retention_days }}
+
+  windows:
+    name: Windows (MSVC 2022, pinned Qt)
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # windeployqt.exe ships in the qtbase archive (checked in phase 0), so no qttools archive is needed.
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          archives: qtbase qtsvg
+          cache: true
+
+      # One step per native command: in a pwsh script a failing native command does not stop the script.
+      - name: Configure
+        working-directory: gui
+        run: cmake --preset ci-windows-release
+
+      - name: Build
+        working-directory: gui
+        run: cmake --build --preset ci-windows-release
+
+      - name: Test (offscreen)
+        working-directory: gui
+        run: ctest --preset ci-windows-release
+
+      - name: Deploy the Qt runtime next to the executable
+        run: ./gui/packaging/windows/make-folder.ps1 -Build gui/build/ci-windows-release -Out dist/RevStudio
+
+      - name: Smoke test the deployed folder (reduced PATH, real Windows platform)
+        run: ./gui/packaging/windows/smoke-folder.ps1 -Folder dist/RevStudio -Backend gui/build/ci-windows-release/tests/mock-rb.exe -CopyBackendIntoFolder
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-win64-folder
+          path: dist/RevStudio
+          retention-days: ${{ inputs.retention_days }}

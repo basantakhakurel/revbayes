@@ -1,0 +1,5 @@
+# A complete short conversation for mock-rb --transcript. `re` is filled in from the request id.
+{"expect":{"cmd":"hello"},"reply":[{"ev":"hello","protocol":1,"server":"RevBayes (transcript)","pid":1,"cwd":"/tmp","features":["mock"]}]}
+{"expect":{"cmd":"submit","text":"x <- 1.5"},"reply":[{"ev":"output","stream":"rbout","text":"done\n"},{"ev":"done","status":"ok","rc":0,"cwd":"/tmp","elapsed_ms":2},{"ev":"variables","rev":1,"cwd":"/tmp","rows":[{"name":"x","type":"RealPos","kind":"constant","summary":"1.5","flags":[]}]}]}
+{"expect":{"cmd":"submit","text":"y <- x +"},"reply":[{"ev":"done","status":"incomplete","rc":1,"cwd":"/tmp","elapsed_ms":0}]}
+{"expect":{"cmd":"shutdown"},"reply":[{"ev":"bye","reason":"shutdown"}],"exit":0}

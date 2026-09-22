@@ -1,6 +1,10 @@
 #include "FunctionTable.h"
 #include "RbFileManager.h"
 #include "RevClient.h"
+#include "RevLanguageMain.h"
+#include "RevServer.h"
+#include "RbVersion.h"
+#include "RlCommandLineOutputStream.h"
 #include "RlFunction.h"
 #include "RlUserInterface.h"
 #include "Parser.h"
@@ -555,6 +559,37 @@ void startJupyterInterpreter()
 
         result = RevClient::interpret(commandLine);
     }
+}
+
+
+/**
+ * Backend for graphical front ends (`rb --server`).
+ *
+ * Order matters: the protocol channel is taken over BEFORE the interpreter environment starts, so that anything the
+ * start-up prints (for example a module loading error) lands on stderr and can never corrupt the protocol.
+ *
+ * Phase 0: the interpreter environment is started, but requests are only answered by the protocol stub
+ * (see RevServer.h). Phase 1 wires `submit` and the workspace snapshot to the interpreter.
+ */
+int startServer()
+{
+    RevLanguage::RevServer server( "RevBayes " + RbVersion().getVersion() );
+    if ( not server.takeOverChannels() )
+    {
+        return 1;
+    }
+
+    // Phase 1 replaces this with a sink that forwards to protocol events.
+    RevLanguage::UserInterface::userInterface().setOutputStream( new CommandLineOutputStream() );
+
+    RevLanguageMain rl( /* continue_on_error */ false, /* echo */ false, /* quiet */ true );
+    int result = rl.startRevLanguageEnvironment( {}, {}, {} );
+    if ( result != 0 )
+    {
+        return result;
+    }
+
+    return server.run();
 }
 
 }
