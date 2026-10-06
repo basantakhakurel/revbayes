@@ -336,11 +336,18 @@ jobs:
         ./testiphy rb
         echo ::endgroup::
 
-    # Protocol used by graphical front ends (see GUI_Implementation_Note.md, section 6.4).
-    # One Linux job is enough for now; the meson install prefix in that job is $HOME/local.
+    # Protocol used by graphical front ends (see GUI_Implementation_Note.md, section 6.4). One native Linux job is
+    # enough to cover the protocol logic itself; the Windows leg additionally exercises the binary-mode/CRLF
+    # handling that only matters on that platform (takeOverChannels()'s _setmode calls, RevServer.cpp), running
+    # the cross-compiled rb.exe under wine through the same wrapper the integration tests use above.
     - name: Server protocol conformance
-      if: matrix.name == 'ubuntu-gcc-13'
-      run: python3 tests/server/run_conformance.py "$HOME/local/bin/rb"
+      if: matrix.name == 'ubuntu-gcc-13' || matrix.name == 'windows'
+      run: |
+        if [ "${{ matrix.name }}" = "windows" ] ; then
+          python3 tests/server/run_conformance.py "$HOME/wrapper/rb"
+        else
+          python3 tests/server/run_conformance.py "$HOME/local/bin/rb"
+        fi
 
     - name: Upload test files if they failed
       uses: actions/upload-artifact@v4

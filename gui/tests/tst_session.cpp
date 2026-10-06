@@ -27,6 +27,8 @@ private slots:
         QCOMPARE(session.state(), Session::State::NotStarted);
         QCOMPARE(session.submit(QStringLiteral("1+1")), qint64(-1));
         QCOMPARE(session.ping(), qint64(-1));
+        QCOMPARE(session.requestSnapshot(), qint64(-1));
+        QCOMPARE(session.requestInspect(QStringLiteral("x")), qint64(-1));
     }
 
     void handshakeSubmitAndShutdown()
@@ -212,6 +214,153 @@ private slots:
         session.kill();
         QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, waitMs);
         QCOMPARE(session.state(), Session::State::Failed);                 // killing is not a clean close
+    }
+
+    void restartBeforeAnyStartIsANoOp()
+    {
+        Session session;
+        session.restart();
+        QCOMPARE(session.state(), Session::State::NotStarted);
+    }
+
+    // Q2's "kill and restart" fallback, for when `interrupt` is not honoured (no core interrupt flag yet, C4):
+    // unlike killStopsTheBackend just above, this kill was asked for, so it must not look like a crash -- the new
+    // process has to come up Ready with no failed() in between, and actually be usable afterward.
+    void restartReplacesTheBackendWithoutReportingFailure()
+    {
+        Session session;
+        QSignalSpy ready(&session, &Session::ready);
+        QSignalSpy closed(&session, &Session::closed);
+        QSignalSpy failed(&session, &Session::failed);
+        QSignalSpy done(&session, &Session::submitFinished);
+
+        session.start(mock);
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, waitMs);
+
+        session.restart();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, waitMs);   // the old process going away
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 2, waitMs);    // the new one's own hello
+        QCOMPARE(session.state(), Session::State::Ready);
+        QCOMPARE(failed.count(), 0);                            // a requested restart, not a crash
+
+        QVERIFY(session.submit(QStringLiteral("1+1")) >= 0);    // the new session actually works
+        QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, waitMs);
+    }
+
+    // D.4/D.5 of doc/server-protocol.md: a redefinition raises `ask`, which blocks the interpreter until
+    // `answer` arrives; quit() raises `quit` then `bye`. See transcripts/ask_and_quit.jsonl for the scripted
+    // exchange this drives.
+    void askIsAnsweredAndQuitIsReported()
+    {
+        Session session;
+        QSignalSpy ready(&session, &Session::ready);
+        QSignalSpy ask(&session, &Session::askRequested);
+        QSignalSpy done(&session, &Session::submitFinished);
+        QSignalSpy quit(&session, &Session::backendQuit);
+        QSignalSpy closed(&session, &Session::closed);
+
+        session.start(mock, QString(), {QStringLiteral("--transcript"), transcriptDir + QStringLiteral("/ask_and_quit.jsonl")});
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, waitMs);
+
+        const qint64 submitId = session.submit(QStringLiteral("function f(x) { return x + 1 }"));
+        QTRY_COMPARE_WITH_TIMEOUT(ask.count(), 1, waitMs);
+        const qint64 askId = ask.first().at(0).toLongLong();
+        QCOMPARE(ask.first().at(1).toString(), QStringLiteral("Replace existing function with same signature"));
+        QCOMPARE(session.state(), Session::State::Busy);                   // still mid-submit while the ask is pending
+
+        session.answer(askId, true);
+        QTRY_COMPARE_WITH_TIMEOUT(done.count(), 1, waitMs);
+        QCOMPARE(done.first().at(0).toLongLong(), submitId);
+        QCOMPARE(done.first().at(1).toString(), QStringLiteral("ok"));
+        QCOMPARE(session.state(), Session::State::Ready);
+
+        session.submit(QStringLiteral("quit()"));
+        QTRY_COMPARE_WITH_TIMEOUT(quit.count(), 1, waitMs);
+        QCOMPARE(quit.first().at(0).toString(), QStringLiteral("quit()"));
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, waitMs);
+        QCOMPARE(session.state(), Session::State::Closed);
+    }
+
+    // G4's VariablesPanel: an on-demand snapshot (what="all" gets both functions and variables) and inspect.
+    void onDemandSnapshotAndInspect()
+    {
+        Session session;
+        QSignalSpy ready(&session, &Session::ready);
+        QSignalSpy variables(&session, &Session::variablesChanged);
+        QSignalSpy functions(&session, &Session::functionsChanged);
+        QSignalSpy inspected(&session, &Session::inspected);
+        QSignalSpy closed(&session, &Session::closed);
+
+        session.start(mock, QString(), {QStringLiteral("--transcript"), transcriptDir + QStringLiteral("/snapshot_and_inspect.jsonl")});
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, waitMs);
+
+        QVERIFY(session.requestSnapshot(QStringLiteral("all")) >= 0);
+        QTRY_COMPARE_WITH_TIMEOUT(functions.count(), 1, waitMs);
+        QTRY_COMPARE_WITH_TIMEOUT(variables.count(), 1, waitMs);
+        QCOMPARE(functions.first().at(0).toJsonArray().size(), 1);
+        QCOMPARE(variables.first().at(0).toJsonArray().size(), 1);
+
+        const qint64 inspectId = session.requestInspect(QStringLiteral("x"));
+        QVERIFY(inspectId >= 0);
+        QTRY_COMPARE_WITH_TIMEOUT(inspected.count(), 1, waitMs);
+        QCOMPARE(inspected.first().at(0).toLongLong(), inspectId);
+        QCOMPARE(inspected.first().at(1).toString(), QStringLiteral("x"));
+        QVERIFY(inspected.first().at(2).toString().contains(QStringLiteral("1.5")));
+        QCOMPARE(inspected.first().at(3).toBool(), false);
+
+        session.shutdown();
+        QTRY_COMPARE_WITH_TIMEOUT(closed.count(), 1, waitMs);
+    }
+
+    // Q3: the same "mu ~ dnExp" -> "mu ~ dnExponential"/"mu ~ dnExponentialError" example doc/server-protocol.md
+    // itself uses, which mock-rb's own `complete` handler reproduces for exactly this reason.
+    void requestCompleteReturnsCompletionsFromTheMock()
+    {
+        Session session;
+        QSignalSpy ready(&session, &Session::ready);
+        QSignalSpy completions(&session, &Session::completionsReceived);
+
+        session.start(mock);
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, waitMs);
+
+        const qint64 id = session.requestComplete(QStringLiteral("mu ~ dnExp"));
+        QVERIFY(id >= 0);
+        QTRY_COMPARE_WITH_TIMEOUT(completions.count(), 1, waitMs);
+        QCOMPARE(completions.first().at(0).toLongLong(), id);
+        QCOMPARE(completions.first().at(1).toInt(), 5);   // "mu ~ " is 5 bytes; "dnExp" is the prefix being completed
+
+        const QJsonArray items = completions.first().at(2).toJsonArray();
+        QCOMPARE(items.size(), 2);
+        QCOMPARE(items.at(0).toObject().value(QStringLiteral("text")).toString(), QStringLiteral("mu ~ dnExponential"));
+        QCOMPARE(items.at(1).toObject().value(QStringLiteral("text")).toString(), QStringLiteral("mu ~ dnExponentialError"));
+    }
+
+    // Q8: the mock's own deterministic stand-in (see mock_rb.cpp's "help" handler) covers the index, a known
+    // topic and an unknown one.
+    void requestHelpReturnsTextForKnownTopicsAndFoundFalseOtherwise()
+    {
+        Session session;
+        QSignalSpy ready(&session, &Session::ready);
+        QSignalSpy help(&session, &Session::helpReceived);
+
+        session.start(mock);
+        QTRY_COMPARE_WITH_TIMEOUT(ready.count(), 1, waitMs);
+
+        const qint64 indexId = session.requestHelp(QString());
+        QTRY_COMPARE_WITH_TIMEOUT(help.count(), 1, waitMs);
+        QCOMPARE(help.last().at(0).toLongLong(), indexId);
+        QCOMPARE(help.last().at(2).toBool(), true);
+        QVERIFY(help.last().at(3).toString().contains(QStringLiteral("Index")));
+
+        session.requestHelp(QStringLiteral("dnExponential"));
+        QTRY_COMPARE_WITH_TIMEOUT(help.count(), 2, waitMs);
+        QCOMPARE(help.last().at(1).toString(), QStringLiteral("dnExponential"));
+        QCOMPARE(help.last().at(2).toBool(), true);
+        QVERIFY(help.last().at(3).toString().contains(QStringLiteral("exponential distribution")));
+
+        session.requestHelp(QStringLiteral("notARealTopic"));
+        QTRY_COMPARE_WITH_TIMEOUT(help.count(), 3, waitMs);
+        QCOMPARE(help.last().at(2).toBool(), false);
     }
 };
 

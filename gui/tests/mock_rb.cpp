@@ -25,6 +25,7 @@
 #include <QThread>
 #include <QCoreApplication>
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -259,6 +260,67 @@ int main(int argc, char* argv[])
             emitEvent(withReply({{QStringLiteral("ev"), QStringLiteral("ack")},
                                  {QStringLiteral("of"), QStringLiteral("interrupt")},
                                  {QStringLiteral("was_busy"), false}}, id));
+        }
+        else if (cmd == QLatin1String("complete") && !options.stub)
+        {
+            // A tiny, deterministic stand-in matching doc/server-protocol.md's own sample session: completing
+            // the identifier run right before `cursor` when it is exactly "dnExp" (GUI tests drive this with
+            // predictable buffers; the real backend's actual completion logic is not something to re-implement
+            // here).
+            const QString buffer = request.value(QStringLiteral("buffer")).toString();
+            const QByteArray bytes = buffer.toUtf8();
+            const int cursor = request.contains(QStringLiteral("cursor")) ? request.value(QStringLiteral("cursor")).toInt()
+                                                                            : bytes.size();
+            int start = qBound(0, cursor, bytes.size());
+            while (start > 0 && (std::isalnum(static_cast<unsigned char>(bytes.at(start - 1))) || bytes.at(start - 1) == '_'))
+            {
+                --start;
+            }
+            const QString prefix = QString::fromUtf8(bytes.mid(start, cursor - start));
+            const QString head = QString::fromUtf8(bytes.left(start));
+            QJsonArray items;
+            if (prefix == QLatin1String("dnExp"))
+            {
+                items.append(QJsonObject{{QStringLiteral("text"), head + QStringLiteral("dnExponential")},
+                                          {QStringLiteral("kind"), QStringLiteral("function")}});
+                items.append(QJsonObject{{QStringLiteral("text"), head + QStringLiteral("dnExponentialError")},
+                                          {QStringLiteral("kind"), QStringLiteral("function")}});
+            }
+            else if (prefix == QLatin1String("uniq"))
+            {
+                // A second, single-match fixture: GUI tests use this one to check the "nothing to choose between,
+                // just insert it" path without needing to drive the completer's own popup.
+                items.append(QJsonObject{{QStringLiteral("text"), head + QStringLiteral("uniqueFunctionName")},
+                                          {QStringLiteral("kind"), QStringLiteral("function")}});
+            }
+            emitEvent(withReply({{QStringLiteral("ev"), QStringLiteral("completions")},
+                                 {QStringLiteral("replace_from"), start},
+                                 {QStringLiteral("items"), items}}, id));
+        }
+        else if (cmd == QLatin1String("help") && !options.stub)
+        {
+            // A tiny, deterministic stand-in: the empty topic is the "index", "dnExponential" is a known topic
+            // with real text, and anything else is reported not found -- enough for GUI tests to exercise all
+            // three without re-implementing the real help system here.
+            const QString topic = request.value(QStringLiteral("topic")).toString();
+            bool found = true;
+            QString text;
+            if (topic.isEmpty())
+            {
+                text = QStringLiteral("Index of help topics.");
+            }
+            else if (topic == QLatin1String("dnExponential"))
+            {
+                text = QStringLiteral("dnExponential(lambda): the exponential distribution.");
+            }
+            else
+            {
+                found = false;
+            }
+            emitEvent(withReply({{QStringLiteral("ev"), QStringLiteral("help")},
+                                 {QStringLiteral("topic"), topic},
+                                 {QStringLiteral("found"), found},
+                                 {QStringLiteral("text"), text}}, id));
         }
         else if (cmd == QLatin1String("shutdown"))
         {

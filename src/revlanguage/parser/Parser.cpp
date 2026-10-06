@@ -49,6 +49,9 @@ std::stringstream rrcommand;
 
 std::shared_ptr<RevLanguage::Environment> executionEnvironment;
 
+// See Parser.h. nullptr preserves the original RevClient::shutdown()+exit(0) behaviour exactly.
+std::function<void(void)> quitRequestHandler = nullptr;
+
 /** Constructor. Here we set the parser mode to executing. */
 RevLanguage::Parser::Parser(void) {
     setParserMode(EXECUTING);
@@ -184,7 +187,12 @@ int RevLanguage::Parser::execute(SyntaxElement* root, const std::shared_ptr<Envi
         if (rbException.getExceptionType() == RbException::QUIT)
         {
             delete( root);
-            
+
+            if (quitRequestHandler)
+            {
+                quitRequestHandler();
+            }
+
             RevClient::shutdown();
 
             exit(0);
@@ -490,6 +498,11 @@ int RevLanguage::Parser::processCommand(std::string& command, const std::shared_
             // Catch a quit request in case it was not caught before
             if (rbException.getExceptionType() == RbException::QUIT)
             {
+                if (quitRequestHandler)
+                {
+                    quitRequestHandler();
+                }
+
                 RevClient::shutdown();
                 exit(0);
             }

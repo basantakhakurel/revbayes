@@ -1,0 +1,7 @@
+# Simulates a backend stuck mid-computation (no core interrupt flag yet, C4): the submit gets no reply at all,
+# ever -- Session stays Busy until something kills the process. interrupt still gets its usual ack (was_busy:
+# true), consistent with the real protocol ("interrupt" always answers, but does not cancel a running submit) --
+# it just does not unstick anything, which is the whole point of this fixture.
+{"expect":{"cmd":"hello"},"reply":[{"ev":"hello","protocol":1,"server":"RevBayes (stuck)","pid":1,"cwd":"/tmp","features":["mock"]}]}
+{"expect":{"cmd":"submit"},"reply":[]}
+{"expect":{"cmd":"interrupt"},"reply":[{"ev":"ack","of":"interrupt","was_busy":true}]}

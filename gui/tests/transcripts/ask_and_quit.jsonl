@@ -1,0 +1,9 @@
+# Exercises Session's ask/answer and quit handling (GUI_Implementation_Note.md, 6.9's "ask dialog"; D.4/D.5 sample
+# sessions in doc/server-protocol.md). `re` is explicitly null on ask/quit/bye below to defeat mock-rb's
+# auto-fill-from-the-triggering-request (those events never carry `re` in the real protocol); `done`'s `re` is
+# set explicitly to the first submit's request id (2: hello is always id 1), since it is a reply to THAT submit,
+# not to the `answer` request that happens to trigger this transcript step.
+{"expect":{"cmd":"hello"},"reply":[{"ev":"hello","protocol":1,"server":"RevBayes (transcript)","pid":1,"cwd":"/tmp","features":["mock"]}]}
+{"expect":{"cmd":"submit","text":"function f(x) { return x + 1 }"},"reply":[{"ev":"ask","id":101,"question":"Replace existing function with same signature","re":null}]}
+{"expect":{"cmd":"answer","re":101},"reply":[{"ev":"done","re":2,"status":"ok","rc":0,"cwd":"/tmp","elapsed_ms":2},{"ev":"variables","rev":1,"cwd":"/tmp","rows":[]}]}
+{"expect":{"cmd":"submit","text":"quit()"},"reply":[{"ev":"quit","reason":"quit()","re":null},{"ev":"bye","reason":"quit","re":null}],"exit":0}

@@ -1,5 +1,6 @@
+#include "Completion.h"
 #include "FunctionTable.h"
-#include "RbFileManager.h"
+#include "OutputCapture.h"
 #include "RevClient.h"
 #include "RevLanguageMain.h"
 #include "RevServer.h"
@@ -13,7 +14,10 @@
 #include "ArgumentRule.h"
 #include "ArgumentRules.h"
 #include "Environment.h"
+#include "RandomNumberFactory.h"
+#include "RandomNumberGenerator.h"
 #include "RevPtr.h"
+#include "StringUtilities.h"
 #include "TypeSpec.h"
 #include "boost/algorithm/string/trim.hpp"
 
@@ -26,12 +30,9 @@ extern "C" {
 }
 
 #include <filesystem>
-#include <boost/algorithm/string/predicate.hpp>
 #include <cstdlib>
 #include <iostream>
 #include <algorithm>
-#include <map>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,222 +47,22 @@ using namespace RevLanguage;
 
 namespace fs = std::filesystem;
 
-std::vector<std::string> getFileList(const RevBayesCore::path& dir)
-{
-    std::vector<RevBayesCore::path> filenames;
-
-    RevBayesCore::setStringWithNamesOfFilesInDirectory( RevBayesCore::current_path() / dir, filenames, false );
-
-    std::vector<std::string> v;
-
-    for(auto& filename: filenames)
-        v.push_back( filename.string() );
-    
-    return v;
-}
-
-
-
-std::vector<std::string> getDefaultCompletions( void )
-{
-    std::set<std::string> c;
-    
-    const FunctionTable& ft = RevLanguage::Workspace::userWorkspace().getFunctionTable();
-    for (std::multimap<std::string, Function*>::const_iterator it = ft.begin(); it != ft.end(); ++it)
-    {
-        c.insert(it->first);
-    }
-    
-    std::vector<std::string> function_table_names;
-    ft.getFunctionNames(function_table_names);
-    for (size_t i = 0; i < function_table_names.size(); i++)
-    {
-//        std::cout << function_table_names[i] << "\n";
-        c.insert(function_table_names[i]);
-    }
-    
-    VariableTable v = RevLanguage::Workspace::userWorkspace().getVariableTable();
-    
-    for (VariableTable::iterator it = v.begin(); it != v.end(); ++it)
-    {
-        c.insert(it->first);
-    }
-    
-    v = RevLanguage::Workspace::globalWorkspace().getVariableTable();
-        
-    for (VariableTable::iterator it = v.begin(); it != v.end(); ++it)
-    {
-        c.insert(it->first);
-    }
-
-    const TypeTable& t_user = RevLanguage::Workspace::userWorkspace().getTypeTable();
-    
-    for (TypeTable::const_iterator it = t_user.begin(); it != t_user.end(); ++it)
-    {
-        c.insert(it->first);
-    }
-    
-    const TypeTable& t_global = RevLanguage::Workspace::globalWorkspace().getTypeTable();
-    
-    for (TypeTable::const_iterator it = t_global.begin(); it != t_global.end(); ++it)
-    {
-        c.insert(it->first);
-    }
-    
-    std::vector<std::string> vec;
-    for (std::set<std::string>::iterator it = c.begin(); it != c.end(); ++it)
-    {
-        vec.push_back( *it );
-    }
-
-    return vec;
-}
-
 /**
- * tab completion callback
- * 
- * Update list of available completions.
- * 
- * @param buf
- * @param lc
+ * linenoise tab-completion callback: a thin adapter over RevLanguage::complete() (Completion.h), which holds the
+ * actual logic so it can be shared with `rb --server`'s `complete` command (GUI_Implementation_Note.md, task/
+ * defect C1). linenoise always passes the buffer already truncated at the cursor, so the completed text and the
+ * cursor are the same thing here.
  */
 void completeOnTab(const char *buf, linenoiseCompletions *lc)
 {
-    bool debug = false;
-    std::string cmd = buf;
-    std::vector<std::string> completions;
+    std::string buffer( buf );
+    std::size_t replace_from = 0;
+    std::vector<RevLanguage::CompletionItem> items =
+        RevLanguage::complete( buffer, buffer.size(), RevLanguage::Workspace::userWorkspacePtr(), replace_from );
 
-    // parse command
-    RevLanguage::ParserInfo pi = RevLanguage::Parser::getParser().checkCommand(cmd, RevLanguage::Workspace::userWorkspacePtr());
-
-    if (pi.inComment)
+    for ( auto& item : items )
     {
-        if (debug) { std::cout << "linenoise-debug: pi.inComment==TRUE\n"; }
-        // no completions available in comments
-        return;
-    }
-
-    // set completions and position on command line where to start matching completions
-    size_t commandPos = 0;
-    if (pi.inQuote)
-    {
-        if (debug) { std::cout << "linenoise-debug: pi.inQuote==TRUE\n"; }
-        // ---------- in quote ------------
-        // search for files with portion after the opening quote                
-        commandPos = cmd.rfind("\"") + 1;
-        completions = getFileList(cmd.substr(commandPos, cmd.size()));
-    }
-    else
-    {
-        if (debug) { std::cout << "linenoise-debug: pi.inComment==FALSE\n"; }
-        std::vector<std::string> expressionSeparator;
-        
-        expressionSeparator.push_back(" ");
-        expressionSeparator.push_back("%");
-        expressionSeparator.push_back("~");
-        expressionSeparator.push_back("=");
-        expressionSeparator.push_back("&");
-        expressionSeparator.push_back("|");
-        expressionSeparator.push_back("+");
-        expressionSeparator.push_back("-");
-        expressionSeparator.push_back("*");
-        expressionSeparator.push_back("/");
-        expressionSeparator.push_back("^");
-        expressionSeparator.push_back("!");
-        expressionSeparator.push_back("=");
-        expressionSeparator.push_back(",");
-        expressionSeparator.push_back("<");
-        expressionSeparator.push_back(">");
-        expressionSeparator.push_back(")");
-        expressionSeparator.push_back("[");
-        expressionSeparator.push_back("]");
-        expressionSeparator.push_back("{");
-        expressionSeparator.push_back("}");
-
-        // find position of right most expression separator in cmd
-
-        for(auto& s: expressionSeparator)
-        {
-            if (debug) { std::cout << "linenoise-debug: rfind(\"" << s << "\",\"" << cmd << "\")=" << cmd.rfind(s) << "\n"; }
-            size_t find_idx = cmd.rfind(s);
-            if (find_idx < cmd.size())
-                commandPos = std::max(commandPos, cmd.rfind(s));
-        }
-        if (debug) { std::cout << "linenoise-debug: cmd.size()=" << cmd.size() << "\n"; }
-        if (debug) { std::cout << "linenoise-debug: commandPos=" << commandPos << "\n"; }
-
-        // special hack: for some reason, base_variable is only set by the parser when there is no trailing characters after the dot
-        // find position of right most dot
-        // Sebastian: Currently unused
-//        size_t dotPosition = cmd.rfind(".");
-
-        if (pi.function_name != "")
-        {
-            if (debug) { std::cout << "linenoise-debug: pi.function_name!=\"\"\n"; }
-            // ---------- function defined ------------
-            if (pi.argument_label != "") // assigning an argument label
-            {
-                if (debug) { std::cout << "linenoise-debug: pi.argument_label!=\"\"\n"; }
-                commandPos = cmd.rfind("=") + 1;
-                // not sure exactly what should be here... setting completions to everything
-                completions = getDefaultCompletions();
-
-            }
-            else // break on either '(' or ','
-            {
-                if (debug) { std::cout << "linenoise-debug: pi.argument_label==\"\"\n"; }
-                commandPos = std::max(cmd.rfind("("), cmd.rfind(",")) + 1;
-                
-                std::vector<Function *> v = Workspace::globalWorkspace().getFunctionTable().findFunctions(pi.function_name);
-                
-                for (std::vector<Function *>::iterator it = v.begin(); it != v.end(); it++)
-                {
-                    const RevLanguage::ArgumentRules& argRules = (*it)->getArgumentRules();
-                    for (size_t i = 0; i < argRules.size(); i++)
-                    {
-                        completions.push_back(argRules[i].getArgumentLabel());
-                    }
-                }
-            }
-        }
-        else
-        {
-            if (debug) { std::cout << "linenoise-debug: pi.function_name==\"\"\n"; }
-            // ---------- default -----------            
-            if (commandPos > 0)
-            {
-                commandPos++;
-            }
-            completions = getDefaultCompletions();
-
-        }
-    }
-
-    // discard any extra space in beginning of the string that is used to match against completions
-    while (buf[commandPos] == ' ')
-    {
-        commandPos++;
-    }
-
-    // match partial command and pass filtered completions to linenoise
-    std::string previousCommands;
-    for (int i = 0; i < commandPos; i++)
-    {
-        previousCommands += buf[i];
-    }
-
-    // the string the matching is made against
-    std::string compMatch(buf + commandPos);
-
-    // populate linenoise completions
-    
-    for(auto& m: completions)
-    {
-        if (boost::starts_with(m, compMatch))
-        {
-            std::string c = previousCommands + m;
-            linenoiseAddCompletion(lc, c.c_str());
-        }
+        linenoiseAddCompletion( lc, item.text.c_str() );
     }
 }
 
@@ -565,13 +366,19 @@ void startJupyterInterpreter()
 /**
  * Backend for graphical front ends (`rb --server`).
  *
- * Order matters: the protocol channel is taken over BEFORE the interpreter environment starts, so that anything the
- * start-up prints (for example a module loading error) lands on stderr and can never corrupt the protocol.
- *
- * Phase 0: the interpreter environment is started, but requests are only answered by the protocol stub
- * (see RevServer.h). Phase 1 wires `submit` and the workspace snapshot to the interpreter.
+ * Order matters:
+ *   1. The protocol channel is taken over BEFORE anything else runs, so nothing printed during start-up (for
+ *      example a module loading error) can ever corrupt the protocol.
+ *   2. A plain CommandLineOutputStream is used ONLY for the brief start-up window while the interpreter
+ *      environment is being built. takeOverChannels() has already redirected fd 1 to stderr, so this output is
+ *      not lost, just not sent to the front end as protocol events -- a deliberate simplification, since nothing
+ *      the front end could act on happens before this returns, and no `hello` has been answered yet at this point
+ *      either.
+ *   3. Once the environment is ready, OutputCapture takes over RBOUT/std::cout/std::cerr for the rest of the
+ *      process's life, and the quit hook (Parser.h's quitRequestHandler) is installed so a Rev quit() call reports
+ *      itself over the protocol (quit, then bye) before the existing RevClient::shutdown()+exit(0) path runs.
  */
-int startServer()
+int startServer( const std::vector<std::string>& cmd_line_options, std::optional<std::uint64_t> seed )
 {
     RevLanguage::RevServer server( "RevBayes " + RbVersion().getVersion() );
     if ( not server.takeOverChannels() )
@@ -579,7 +386,29 @@ int startServer()
         return 1;
     }
 
-    // Phase 1 replaces this with a sink that forwards to protocol events.
+    // See RevClient.h's comment on this function: RbSettings::userSettings()'s first call (right here) reads
+    // ~/.RevBayes.ini and can print a warning for an unrecognised key straight to std::cout; applying a bad -o
+    // value does too. Doing this AFTER takeOverChannels() means fd 1 is already redirected to stderr by then, so
+    // that warning cannot corrupt the protocol the way it would have landing on the still-unredirected fd 1 if
+    // main() had done this before dispatching here, as it does for every other mode.
+    RbSettings& settings = RbSettings::userSettings();
+    for ( auto& option : cmd_line_options )
+    {
+        std::vector<std::string> tokens;
+        StringUtilities::stringSplit( option, "=", tokens );
+        if ( tokens.size() != 2 )
+        {
+            std::cerr << "Option '" << option << "' must have the form key=value\n";
+            return 1;
+        }
+        settings.setOption( tokens[0], tokens[1], false );
+    }
+    if ( seed )
+    {
+        RevBayesCore::RandomNumberGenerator* rng = RevBayesCore::GLOBAL_RNG;
+        rng->setSeed( seed.value() );
+    }
+
     RevLanguage::UserInterface::userInterface().setOutputStream( new CommandLineOutputStream() );
 
     RevLanguageMain rl( /* continue_on_error */ false, /* echo */ false, /* quiet */ true );
@@ -588,6 +417,38 @@ int startServer()
     {
         return result;
     }
+
+    RevLanguage::OutputCapture capture( [&server](const std::string& text, RevLanguage::OutputCapture::Stream which)
+    {
+        server.emitOutput( text, which );
+    } );
+
+    // quitRequestHandler (declared in Parser.h) is at global scope, like the other flex/parser externs it sits
+    // beside there -- not inside namespace RevLanguage.
+    quitRequestHandler = [&server]
+    {
+        server.reportQuit( "quit()" );
+
+        // Terminate here, rather than returning and letting Parser.cpp's own RevClient::shutdown()+exit(0) run:
+        // exit() destroys static-duration objects, including std::cin, and that destructor can deadlock against
+        // the reader thread if it is still blocked inside std::getline(std::cin, ...) at the time (both contend
+        // for the same internal iostream lock; the single-threaded terminal client this exit() path was written
+        // for never has a second thread blocked on cin, so it never hit this). _Exit skips all of that -- no C++
+        // destructors, no atexit handlers, so RevClient::shutdown()'s workspace clearing is skipped too, which is
+        // harmless: the process is terminating either way, and --server already refuses MPI builds, so there is no
+        // MPI_Finalize() to lose. Verified empirically: exit(0) here reproduced the deadlock 100% of the time while
+        // a client kept stdin open; _Exit(0) does not.
+        std::_Exit( 0 );
+    };
+
+    // The ask hook (RlUserInterface.h's setAskHandler) is a member of UserInterface itself, unlike
+    // quitRequestHandler above: it must return a value to its caller, so "fire an event and return" is not enough
+    // here -- the handler blocks the calling (interpreter) thread inside RevServer::requestAsk() until an `answer`
+    // arrives (or the server is shutting down, in which case it returns false; see requestAsk()'s comment).
+    RevLanguage::UserInterface::userInterface().setAskHandler( [&server](const std::string& question)
+    {
+        return server.requestAsk( question );
+    } );
 
     return server.run();
 }

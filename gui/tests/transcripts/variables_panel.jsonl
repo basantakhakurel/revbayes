@@ -1,0 +1,10 @@
+# Exercises VariablesPanel end to end: the on-ready "all" snapshot, selecting a row (inspect), and the context
+# menu's Remove action going through ConsoleWidget::submitText (clear(x)). The panel also requests a `functions`
+# snapshot after every submitFinished (variables already arrive via the automatic broadcast), hence the extra
+# step after clear(x)'s `done`.
+{"expect":{"cmd":"hello"},"reply":[{"ev":"hello","protocol":1,"server":"RevBayes (transcript)","pid":1,"cwd":"/tmp","features":["mock"]}]}
+{"expect":{"cmd":"snapshot","what":"all"},"reply":[{"ev":"functions","rows":[{"name":"f","signature":"RevObject f(x)"}]},{"ev":"variables","rev":1,"cwd":"/tmp","rows":[{"name":"args","type":"String[]","kind":"constant","summary":"String[0]","flags":["system"]},{"name":"x","type":"RealPos","kind":"constant","summary":"1.5","flags":[]}]}]}
+{"expect":{"cmd":"inspect","name":"x"},"reply":[{"ev":"inspection","name":"x","text":"_variable = x\n_value = 1.5\n","truncated":false}]}
+{"expect":{"cmd":"submit","text":"clear(x)"},"reply":[{"ev":"done","status":"ok","rc":0,"cwd":"/tmp","elapsed_ms":1},{"ev":"variables","rev":2,"cwd":"/tmp","rows":[{"name":"args","type":"String[]","kind":"constant","summary":"String[0]","flags":["system"]}]}]}
+{"expect":{"cmd":"snapshot","what":"functions"},"reply":[{"ev":"functions","rows":[{"name":"f","signature":"RevObject f(x)"}]}]}
+{"expect":{"cmd":"shutdown"},"reply":[{"ev":"bye","reason":"shutdown"}],"exit":0}

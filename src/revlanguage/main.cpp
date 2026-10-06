@@ -243,9 +243,22 @@ int main(int argc, char* argv[])
 #       endif
     }
 
+    /* Backend for graphical front ends: own start-up sequence and own output channels (see RevClient::startServer).
+     * In particular, RbSettings::userSettings()'s FIRST call below reads ~/.RevBayes.ini and can print a warning
+     * for an unrecognised key straight to std::cout (RbSettings.cpp); so can settings.setOption() for a bad -o
+     * value. For every other mode that is harmless noise on the terminal, but on fd 1 it would corrupt the very
+     * first bytes of the protocol stream if it ran before the server has redirected fd 1 to stderr -- found
+     * empirically (GUI_Implementation_Note.md task S11, "-s/-o plumbing"): dispatch to startServer() BEFORE
+     * touching RbSettings at all, and let it apply -o/-s itself, after takeOverChannels(). */
+    if ( cmd_line.server )
+    {
+        int result = RevClient::startServer( cmd_line.options, cmd_line.seed );
+        RevClient::shutdown();
+        return result;
+    }
+
     /* Set default session properties from cmd line flags */
     auto& settings = RbSettings::userSettings();
-    bool continue_on_error = not cmd_line.script_or_expr() or cmd_line.force_continue_on_error;
 
     /* Set user options from cmd line */
     for(auto& option: cmd_line.options)
@@ -268,14 +281,6 @@ int main(int argc, char* argv[])
     {
         RevBayesCore::RandomNumberGenerator *rng = RevBayesCore::GLOBAL_RNG;
         rng->setSeed( cmd_line.seed.value() );
-    }
-
-    /* Backend for graphical front ends: own start-up sequence and own output channels (see RevClient::startServer). */
-    if ( cmd_line.server )
-    {
-        int result = RevClient::startServer();
-        RevClient::shutdown();
-        return result;
     }
 
     /* initialize environment */

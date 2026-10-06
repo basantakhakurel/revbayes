@@ -32,6 +32,12 @@ UserInterface::UserInterface( const UserInterface &u ) :
 /** Ask user a yes/no question */
 bool UserInterface::ask(std::string msg)
 {
+    // See RlUserInterface.h's comment on setAskHandler(): in `rb --server` mode, std::cin below is the same stream
+    // the reader thread is concurrently reading requests from, so this hook lets the front end answer instead.
+    if ( ask_handler )
+    {
+        return ask_handler( msg );
+    }
 
     std::string answer, dummy;
     std::cout << RevBayesCore::RbUtils::PAD << (msg + "? (yes/no) ");     // not using RBOUT or output because we do not want a newline

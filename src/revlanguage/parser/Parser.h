@@ -2,6 +2,7 @@
 #define Parser_H
 
 #include <cstddef>
+#include <functional>
 #include <list>
 #include <string>
 #include <sstream>
@@ -154,5 +155,18 @@ extern bool foundEOF;
 // Global column and token length variables for flex
 extern size_t yycolumn;
 extern int    yyleng;
+
+// Installed by `rb --server` (RevClient.cpp / RevServer.cpp) so a Rev quit() request can be reported to the front
+// end and the process shut down cleanly, instead of the default exit(0) firing directly inside
+// Parser::execute/processCommand. Default (nullptr) preserves the original behaviour exactly.
+//
+// A handler that is set should terminate the process ITSELF, with _Exit()/_exit() rather than exit(): if it just
+// returns, the original RevClient::shutdown()+exit(0) below still runs as a fallback, but in a multi-threaded
+// caller (such as the server, which reads stdin on a separate thread) that exit() call can deadlock -- it destroys
+// static-duration objects including std::cin, and that destructor can contend with another thread still blocked
+// inside std::getline(std::cin, ...) for the same internal iostream lock. This is not a risk for the original,
+// single-threaded terminal/script use of quit() (there is no second thread blocked on cin there), which is why the
+// fallback is left as plain exit() rather than changed to _Exit() here.
+extern std::function<void(void)> quitRequestHandler;
 
 #endif

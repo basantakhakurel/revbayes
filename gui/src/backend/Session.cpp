@@ -33,10 +33,29 @@ Session::~Session() = default;      // the BackendProcess is a child object; its
 
 void Session::start(const QString& program, const QString& workingDirectory, const QStringList& extraArguments)
 {
-    if (state_ != State::NotStarted)
+    if (state_ != State::NotStarted && state_ != State::Closed && state_ != State::Failed)
     {
         return;
     }
+
+    startProgram_ = program;
+    startWorkingDirectory_ = workingDirectory;
+    startExtraArguments_ = extraArguments;
+
+    // A restart's previous process (already finished, or this would still be Ready/Busy/Starting/Closing above):
+    // discard it and the conversation state it carried, so the new one starts exactly like a first start().
+    delete process_;
+    process_ = nullptr;
+    malformedInARow_ = 0;
+    byeReceived_ = false;
+    closedEmitted_ = false;
+    restarting_ = false;
+    pendingSubmit_ = -1;
+    helloId_ = -1;
+    serverVersion_.clear();
+    cwd_.clear();
+    features_.clear();
+    failureReason_.clear();
 
     process_ = new BackendProcess(this);
     connect(process_, &BackendProcess::started, this, &Session::onStarted);
@@ -95,6 +114,53 @@ qint64 Session::interrupt()
     return send(QStringLiteral("interrupt"));
 }
 
+void Session::answer(qint64 askId, bool value)
+{
+    send(QStringLiteral("answer"),
+         QJsonObject{{QStringLiteral("re"), askId}, {QStringLiteral("value"), value}});
+}
+
+qint64 Session::requestSnapshot(const QString& what)
+{
+    if (state_ != State::Ready)
+    {
+        return -1;
+    }
+    return send(QStringLiteral("snapshot"), QJsonObject{{QStringLiteral("what"), what}});
+}
+
+qint64 Session::requestInspect(const QString& name)
+{
+    if (state_ != State::Ready)
+    {
+        return -1;
+    }
+    return send(QStringLiteral("inspect"), QJsonObject{{QStringLiteral("name"), name}});
+}
+
+qint64 Session::requestComplete(const QString& buffer, int cursor)
+{
+    if (state_ != State::Ready)
+    {
+        return -1;
+    }
+    QJsonObject fields{{QStringLiteral("buffer"), buffer}};
+    if (cursor >= 0)
+    {
+        fields.insert(QStringLiteral("cursor"), cursor);
+    }
+    return send(QStringLiteral("complete"), fields);
+}
+
+qint64 Session::requestHelp(const QString& topic)
+{
+    if (state_ != State::Ready)
+    {
+        return -1;
+    }
+    return send(QStringLiteral("help"), QJsonObject{{QStringLiteral("topic"), topic}});
+}
+
 void Session::shutdown()
 {
     switch (state_)
@@ -119,6 +185,28 @@ void Session::kill()
     {
         process_->kill();
     }
+}
+
+void Session::restart()
+{
+    if (startProgram_.isEmpty())
+    {
+        return;   // start() was never called; nothing to restart into
+    }
+    if (state_ == State::NotStarted || state_ == State::Closed || state_ == State::Failed)
+    {
+        start(startProgram_, startWorkingDirectory_, startExtraArguments_);
+        return;
+    }
+    // Still running: kill it, then start the new one once onFinished() reports it gone. restarting_ makes that
+    // onFinished() land on Closed instead of Failed (see its own comment) -- this is not a crash, it is what
+    // was asked for.
+    restarting_ = true;
+    connect(this, &Session::closed, this, [this](int)
+    {
+        start(startProgram_, startWorkingDirectory_, startExtraArguments_);
+    }, Qt::SingleShotConnection);
+    kill();
 }
 
 QStringList Session::stderrTail() const
@@ -205,6 +293,24 @@ void Session::handleEvent(const QJsonObject& event)
     {
         emit variablesChanged(event.value(QStringLiteral("rows")).toArray(), event.value(QStringLiteral("cwd")).toString());
     }
+    else if (ev == QLatin1String("functions"))
+    {
+        emit functionsChanged(event.value(QStringLiteral("rows")).toArray());
+    }
+    else if (ev == QLatin1String("inspection"))
+    {
+        emit inspected(re, event.value(QStringLiteral("name")).toString(), event.value(QStringLiteral("text")).toString(),
+                       event.value(QStringLiteral("truncated")).toBool());
+    }
+    else if (ev == QLatin1String("completions"))
+    {
+        emit completionsReceived(re, event.value(QStringLiteral("replace_from")).toInt(), event.value(QStringLiteral("items")).toArray());
+    }
+    else if (ev == QLatin1String("help"))
+    {
+        emit helpReceived(re, event.value(QStringLiteral("topic")).toString(), event.value(QStringLiteral("found")).toBool(),
+                           event.value(QStringLiteral("text")).toString());
+    }
     else if (ev == QLatin1String("pong"))
     {
         emit pongReceived(re);
@@ -233,6 +339,15 @@ void Session::handleEvent(const QJsonObject& event)
     {
         byeReceived_ = true;
     }
+    else if (ev == QLatin1String("ask"))
+    {
+        // Not a reply to anything (no `re`): `id` here is the ask's own id, a separate namespace from request ids.
+        emit askRequested(event.value(QStringLiteral("id")).toInteger(-1), event.value(QStringLiteral("question")).toString());
+    }
+    else if (ev == QLatin1String("quit"))
+    {
+        emit backendQuit(event.value(QStringLiteral("reason")).toString());
+    }
     // Unknown events are ignored on purpose: newer backends may send events this GUI does not know (forward compatibility).
 }
 
@@ -241,7 +356,7 @@ void Session::onFinished(int exitCode, bool crashed)
     handshakeTimer_.stop();
     shutdownTimer_.stop();
 
-    if (state_ == State::Closing || (byeReceived_ && !crashed && exitCode == 0))
+    if (restarting_ || state_ == State::Closing || (byeReceived_ && !crashed && exitCode == 0))
     {
         setState(State::Closed);
     }

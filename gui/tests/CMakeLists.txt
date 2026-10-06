@@ -33,6 +33,47 @@ endfunction()
 revstudio_add_qtest(tst_protocolcodec)
 revstudio_add_qtest(tst_backendlocator)
 revstudio_add_qtest(tst_session)
+revstudio_add_qtest(tst_settings)
+revstudio_add_qtest(tst_consolehistory)
+revstudio_add_qtest(tst_variablesmodel)
+revstudio_add_qtest(tst_revstring)
+
+# Widgets (QPlainTextEdit, QMessageBox, ...), unlike the Core-only helper above; also pulls in the one app/*.cpp
+# file (not part of revstudio_core, which stays QtCore-only) that the test actually needs.
+function(revstudio_add_widget_qtest name)
+  add_executable(${name} ${name}.cpp ${ARGN})
+  target_link_libraries(${name} PRIVATE revstudio_core Qt6::Widgets Qt6::Test revstudio_warnings)
+  target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+  target_compile_definitions(${name} PRIVATE
+    "MOCK_RB_PATH=\"$<TARGET_FILE:mock-rb>\""
+    "TRANSCRIPT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/transcripts\"")
+  add_dependencies(${name} mock-rb)
+  set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  add_test(NAME ${name} COMMAND ${name})
+  set_tests_properties(${name} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120)
+endfunction()
+
+revstudio_add_widget_qtest(tst_consolewidget ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/ConsoleWidget.cpp)
+revstudio_add_widget_qtest(tst_variablespanel
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/ConsoleWidget.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/VariablesPanel.cpp)
+revstudio_add_widget_qtest(tst_fileexplorerpanel
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/ConsoleWidget.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/EditorTabs.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/FileExplorerPanel.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/RevHighlighter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/ScriptEditor.cpp)
+revstudio_add_widget_qtest(tst_scripteditor
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/RevHighlighter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/ScriptEditor.cpp)
+revstudio_add_widget_qtest(tst_editortabs
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/ConsoleWidget.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/EditorTabs.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/RevHighlighter.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/ScriptEditor.cpp)
+revstudio_add_widget_qtest(tst_revhighlighter ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/RevHighlighter.cpp)
+revstudio_add_widget_qtest(tst_preferencesdialog ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/PreferencesDialog.cpp)
+revstudio_add_widget_qtest(tst_helpdock ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/HelpDock.cpp)
 
 # End to end: the real executable and the real start-up path against the mock. The outcome is read from the report
 # file the program writes (see run_selftest.cmake), not from captured stdout.

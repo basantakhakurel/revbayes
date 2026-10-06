@@ -32,19 +32,32 @@ endif()
 
 configure_file(src/app/revstudio_version.h.in ${CMAKE_CURRENT_BINARY_DIR}/revstudio_version.h @ONLY)
 
-# Non-UI logic: linked by the application and by the tests. QtCore only, so it is testable without a display.
+# Non-UI logic: linked by the application and by the tests. QtCore (+Gui for VariablesModel's QColor/QBrush
+# BackgroundRole, which needs no display) only, so it is testable without one.
 add_library(revstudio_core STATIC
+  src/app/ConsoleHistory.cpp
+  src/app/Settings.cpp
+  src/app/VariablesModel.cpp
   src/backend/ProtocolCodec.cpp
   src/backend/BackendLocator.cpp
   src/backend/BackendProcess.cpp
   src/backend/Session.cpp)
 target_include_directories(revstudio_core PUBLIC src ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(revstudio_core PUBLIC Qt6::Core PRIVATE revstudio_warnings)
+target_link_libraries(revstudio_core PUBLIC Qt6::Core Qt6::Gui PRIVATE revstudio_warnings)
 
 qt_add_executable(RevStudio
   src/main.cpp
+  src/app/ConsoleWidget.cpp
+  src/app/EditorTabs.cpp
+  src/app/FileExplorerPanel.cpp
+  src/app/HelpDock.cpp
   src/app/MainWindow.cpp
+  src/app/PreferencesDialog.cpp
+  src/app/RevHighlighter.cpp
+  src/app/ScriptEditor.cpp
   src/app/SelfTest.cpp
+  src/app/Theme.cpp
+  src/app/VariablesPanel.cpp
   resources/revstudio.qrc)
 if(WIN32)
   target_sources(RevStudio PRIVATE packaging/windows/revstudio.rc)

@@ -1,0 +1,8 @@
+# Exercises Session::requestSnapshot()/requestInspect() (GUI_Implementation_Note.md 6.6, G4's VariablesPanel).
+# Unlike ask/quit/bye in ask_and_quit.jsonl, these events really are direct replies to the request that triggers
+# this transcript step, so mock-rb's auto-fill-`re`-from-the-request behaviour is exactly right here -- no
+# explicit "re" needed.
+{"expect":{"cmd":"hello"},"reply":[{"ev":"hello","protocol":1,"server":"RevBayes (transcript)","pid":1,"cwd":"/tmp","features":["mock"]}]}
+{"expect":{"cmd":"snapshot","what":"all"},"reply":[{"ev":"functions","rows":[{"name":"f","signature":"RevObject f(x)"}]},{"ev":"variables","rev":1,"cwd":"/tmp","rows":[{"name":"x","type":"RealPos","kind":"constant","summary":"1.5","flags":[]}]}]}
+{"expect":{"cmd":"inspect","name":"x"},"reply":[{"ev":"inspection","name":"x","text":"_variable = x\n_value = 1.5\n","truncated":false}]}
+{"expect":{"cmd":"shutdown"},"reply":[{"ev":"bye","reason":"shutdown"}],"exit":0}

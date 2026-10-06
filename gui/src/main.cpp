@@ -1,5 +1,7 @@
 #include "app/MainWindow.h"
 #include "app/SelfTest.h"
+#include "app/Settings.h"
+#include "app/Theme.h"
 #include "backend/BackendLocator.h"
 #include "backend/Session.h"
 #include "revstudio_version.h"
@@ -99,14 +101,18 @@ int main(int argc, char* argv[])
 
     const QString workingDirectory = parser.isSet(cwdOption) ? parser.value(cwdOption) : QDir::currentPath();
 
-    revstudio::Session session;
-    revstudio::MainWindow window(&session);
-    window.show();
+    revstudio::Settings settings;
+    revstudio::Theme::apply(settings.themeMode());
 
     if (parser.isSet(selftestOption))
     {
         attachParentConsoleIfNeeded();
 
+        // A bare Session, deliberately not the full MainWindow: the self-test's whole point is a controlled,
+        // minimal conversation, and MainWindow's panels (VariablesPanel's own snapshot request on ready, and
+        // whatever G5/G6 add later) would otherwise share this same Session and talk to the backend on their
+        // own schedule, which the mock does not expect and the self-test should not have to account for.
+        revstudio::Session session;
         revstudio::SelfTest::Options options;
         options.rbPath           = parser.value(rbOption);
         options.reportPath       = parser.value(reportOption);
@@ -118,11 +124,19 @@ int main(int argc, char* argv[])
         return app.exec();
     }
 
+    revstudio::Session session;
+    revstudio::MainWindow window(&session, &settings);
+    window.show();
+
     // Normal start: find a backend and start the session.
-    const revstudio::BackendLocator locator(parser.value(rbOption), QString(), QCoreApplication::applicationDirPath());
+    const revstudio::BackendLocator locator(parser.value(rbOption), settings.backendPath(), QCoreApplication::applicationDirPath());
     const auto backend = locator.locate();
     if (backend)
     {
+        if (parser.isSet(rbOption))
+        {
+            settings.setBackendPath(backend->path);   // remember an explicit --rb, so a plain launch next time reuses it
+        }
         window.log(QObject::tr("Starting backend %1 (found via %2)").arg(backend->path, backend->origin));
         session.start(backend->path, workingDirectory);
     }

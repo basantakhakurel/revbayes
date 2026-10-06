@@ -61,3 +61,7 @@ revbayes.code-workspace
 *~
 *#
 .#*
+
+#--------- Python (tests/server/run_conformance.py) -----------
+__pycache__/
+*.pyc
