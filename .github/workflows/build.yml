@@ -250,8 +250,8 @@ jobs:
         if [ -n "${{ matrix.buildtype || '' }}" ] ; then
            MESON_ARGS="${MESON_ARGS} -Dbuildtype=${{ matrix.buildtype }}"
         fi
-        ./projects/meson/generate.sh -Dprefix=$HOME/local/ -Dmpi=${{ matrix.mpi }}
-        meson setup build ${MESON_ARGS}
+        ./projects/meson/generate.sh
+        meson setup build --prefix=$HOME/local -Dmpi=${{ matrix.mpi }} ${MESON_ARGS}
         echo ::endgroup::
 
         if [ "${{ matrix.project }}" = "meson" ] ; then

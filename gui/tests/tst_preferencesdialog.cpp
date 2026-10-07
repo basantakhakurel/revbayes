@@ -6,7 +6,6 @@
 #include <QComboBox>
 #include <QFontComboBox>
 #include <QFontDatabase>
-#include <QFontInfo>
 #include <QLineEdit>
 #include <QSettings>
 #include <QSpinBox>
@@ -39,12 +38,15 @@ private slots:
     void loadsTheCurrentSettingsOnConstruction()
     {
         // An arbitrary-but-unavailable family name (e.g. "Courier New" on a machine without it) would round-trip
-        // through QFontComboBox as whatever substitute Qt's own font matching picks instead, which has nothing
-        // to do with this dialog -- so this resolves the same alias Settings::editorFont() itself falls back to
-        // ("monospace" on this Linux fontconfig setup) to the concrete family QFontComboBox will actually match
-        // it to (e.g. "DejaVu Sans Mono"), the same resolution QFontInfo performs.
-        const QString availableFamily =
-            QFontInfo(QFontDatabase::systemFont(QFontDatabase::FixedFont)).family();
+        // through QFontComboBox as whatever substitute Qt's own font matching picks instead, which has nothing to
+        // do with this dialog -- so this picks a family straight out of QFontComboBox's own backing list
+        // (QFontDatabase::families()), which is guaranteed to round-trip unchanged on any platform. (An earlier
+        // version resolved QFontDatabase::systemFont(FixedFont) through QFontInfo instead, reasoning from what
+        // that happened to resolve to on Linux's fontconfig setup -- QFontComboBox's own matching is not
+        // guaranteed to agree with QFontInfo's, and on Windows it did not, failing this QCOMPARE immediately.)
+        const QStringList availableFamilies = QFontDatabase::families();
+        QVERIFY(!availableFamilies.isEmpty());
+        const QString availableFamily = availableFamilies.first();
 
         TempSettings t;
         t.settings.setThemeMode(Theme::Mode::Dark);

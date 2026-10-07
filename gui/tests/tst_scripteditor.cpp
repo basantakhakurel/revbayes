@@ -314,7 +314,10 @@ private slots:
         ScriptEditor editor;
         editor.resize(400, 300);
         editor.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&editor));
+        editor.activateWindow();
+        // setFocus() only takes effect once the window is active, not merely shown/exposed -- without this,
+        // the QTRY checks below spin for their full timeout on some platforms (confirmed on Windows CI).
+        QVERIFY(QTest::qWaitForWindowActive(&editor));
         editor.setPlainText(QStringLiteral("alpha"));
         editor.setFocus();
         QTRY_VERIFY_WITH_TIMEOUT(editor.hasFocus(), 10000);
@@ -332,7 +335,8 @@ private slots:
         ScriptEditor editor;
         editor.resize(400, 300);
         editor.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&editor));
+        editor.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&editor));
         editor.setPlainText(QStringLiteral("alpha"));
 
         QTest::keyClick(&editor, Qt::Key_H, Qt::ControlModifier);
@@ -427,7 +431,8 @@ private slots:
         ScriptEditor editor;
         editor.resize(400, 300);
         editor.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&editor));
+        editor.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&editor));
         editor.setPlainText(QStringLiteral("alpha"));
         editor.showFindBar(false);
 
