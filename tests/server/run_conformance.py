@@ -37,6 +37,18 @@ def command(*args):
     return WRAPPER + [RB] + list(args)
 
 
+def to_host_path(path):
+    """Translates a path as the server reports it back into one `os.path.samefile()` can resolve on this (host)
+    machine. Under RB_WRAPPER=wine, the server sees its own, Wine-mapped view of the filesystem and reports an
+    absolute path Windows-style (e.g. "Z:\\tmp\\foo"); every Wine prefix maps its Z: drive to the Unix root by
+    convention (wineboot creates this unless deliberately reconfigured), so stripping the drive letter and
+    swapping backslashes for forward slashes recovers the real path. A native path never matches this pattern,
+    so outside of RB_WRAPPER=wine this is a no-op."""
+    if len(path) >= 3 and path[1] == ":" and path[2] == "\\":
+        return "/" + path[3:].replace("\\", "/")
+    return path
+
+
 class Server:
     """A running `rb --server` with its stdout parsed into protocol events."""
 
@@ -207,7 +219,7 @@ class ServerCase(unittest.TestCase):
             self.assertTrue(reply["server"].startswith("RevBayes "), reply["server"])
             self.assertIsInstance(reply["pid"], int)
             self.assertIsInstance(reply["features"], list)
-            self.assertTrue(os.path.samefile(reply["cwd"], workdir), (reply["cwd"], workdir))
+            self.assertTrue(os.path.samefile(to_host_path(reply["cwd"]), workdir), (reply["cwd"], workdir))
 
     def test_hello_reports_non_ascii_cwd(self):
         prefix = "rb-éü-ディ-"
@@ -218,7 +230,7 @@ class ServerCase(unittest.TestCase):
         self.addCleanup(os.rmdir, workdir)
         server = self.start(cwd=workdir)
         reply = self.hello(server)
-        self.assertTrue(os.path.samefile(reply["cwd"], workdir), (reply["cwd"], workdir))
+        self.assertTrue(os.path.samefile(to_host_path(reply["cwd"]), workdir), (reply["cwd"], workdir))
 
     def test_hello_protocol_must_be_an_integer(self):
         server = self.start()
@@ -364,7 +376,7 @@ class ServerCase(unittest.TestCase):
         escaped = workdir.replace("\\", "\\\\").replace('"', '\\"')
         done, _, _ = self.submit(server, 'setwd("' + escaped + '")', 5)
         self.assertEqual(done["status"], "ok")
-        self.assertTrue(os.path.samefile(done["cwd"], workdir), (done["cwd"], workdir))
+        self.assertTrue(os.path.samefile(to_host_path(done["cwd"]), workdir), (done["cwd"], workdir))
 
     def test_submit_needs_a_text_field(self):
         server = self.ready()
