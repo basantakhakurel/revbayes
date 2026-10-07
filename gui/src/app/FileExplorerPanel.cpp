@@ -37,8 +37,16 @@ public:
     void setShowHidden(bool show)
     {
         showHidden_ = show;
+        // beginFilterChange()/endFilterChange() need Qt 6.9/6.10 -- newer than this project's 6.4.3 floor and
+        // 6.8.3 pin (confirmed: CI failed to compile with them, unqualified, on both). invalidateFilter() works
+        // everywhere this project targets but is deprecated on newer Qt, hence the version gate rather than
+        // just using it unconditionally and taking the warning on a newer dev machine.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
         beginFilterChange();
         endFilterChange(Direction::Rows);
+#else
+        invalidateFilter();
+#endif
     }
 
 protected:

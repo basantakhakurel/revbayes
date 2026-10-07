@@ -41,15 +41,13 @@ public:
     void setShowWorkspace(bool show)
     {
         showWorkspace_ = show;
-        beginFilterChange();
-        endFilterChange(Direction::Rows);
+        refreshFilter();
     }
 
     void setShowHidden(bool show)
     {
         showHidden_ = show;
-        beginFilterChange();
-        endFilterChange(Direction::Rows);
+        refreshFilter();
     }
 
 protected:
@@ -69,6 +67,20 @@ protected:
     }
 
 private:
+    // beginFilterChange()/endFilterChange() need Qt 6.9/6.10 -- newer than this project's 6.4.3 floor and 6.8.3
+    // pin (confirmed: CI failed to compile with them, unqualified, on both). invalidateFilter() works everywhere
+    // this project targets but is deprecated on newer Qt, hence the version gate rather than just using it
+    // unconditionally and taking the warning on a newer dev machine.
+    void refreshFilter()
+    {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+        beginFilterChange();
+        endFilterChange(Direction::Rows);
+#else
+        invalidateFilter();
+#endif
+    }
+
     bool showWorkspace_ = true;    // "hidden by default" (6.6) is specified for hidden/system only, not these
     bool showHidden_    = false;
 };
