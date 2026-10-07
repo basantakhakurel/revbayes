@@ -121,36 +121,23 @@ jobs:
         working-directory: gui
         run: ctest --preset ci-windows-release --output-on-failure
 
-      # Temporary diagnostic (remove once tst_preferencesdialog is green again): the direct run below returned exit
-      # code 2 with ZERO stdout/stderr -- not even QtTest's own startup banner, which prints before any test code
-      # runs. That rules out a normal QCOMPARE/QVERIFY failure (prints "FAIL!" first) and doesn't match a crash
-      # either (confirmed locally: a real segfault under this same QtTest/Qt version prints a full crash-handler
-      # report and exits via the OS signal convention, not a clean small code). This round captures stdout/stderr
-      # to separate files via Start-Process (bypassing any buffering quirk in `&`'s own capture), checks the file
-      # genuinely exists where expected, and runs tst_scripteditor.exe (known-good) the same way as a baseline.
+      # Temporary diagnostic (remove once tst_preferencesdialog is green again): the previous round's Start-Process
+      # -RedirectStandardOutput/-RedirectStandardError came back empty for BOTH tests, including tst_scripteditor
+      # (known to run ~37s and produce normal QtTest output under ctest in this same run) -- so that redirection
+      # mechanism itself is unreliable here (a known pwsh + -NoNewWindow quirk), not evidence that the real exe
+      # produces no output. ctest's own Testing/Temporary/LastTest.log unconditionally records everything it
+      # captures regardless of --output-on-failure, so read that directly instead of re-capturing output myself.
       - name: Diagnose tst_preferencesdialog directly (temporary)
         if: always()
         working-directory: gui
         run: |
+          Write-Host "--- ctest's own LastTest.log (authoritative, not re-captured) ---"
+          Get-Content "build\ci-windows-release\Testing\Temporary\LastTest.log"
+
+          Write-Host "--- Plain direct invocation (no redirection at all) ---"
           $env:QT_QPA_PLATFORM = "offscreen"
-
-          Write-Host "--- File check ---"
-          Get-ChildItem "build\ci-windows-release\tests\tst_preferencesdialog.exe" | Format-List *
-          Get-ChildItem "build\ci-windows-release\tests\tst_scripteditor.exe" | Format-List *
-
-          Write-Host "--- Baseline: tst_scripteditor.exe (known-good) via Start-Process ---"
-          $p1 = Start-Process -FilePath "build\ci-windows-release\tests\tst_scripteditor.exe" -ArgumentList "-v2" -NoNewWindow -Wait -PassThru `
-                -WorkingDirectory (Get-Location) -RedirectStandardOutput "scripteditor_stdout.txt" -RedirectStandardError "scripteditor_stderr.txt"
-          Write-Host "tst_scripteditor exit code: $($p1.ExitCode)"
-          Write-Host "--- stdout ---"; Get-Content "scripteditor_stdout.txt"
-          Write-Host "--- stderr ---"; Get-Content "scripteditor_stderr.txt"
-
-          Write-Host "--- tst_preferencesdialog.exe via Start-Process ---"
-          $p2 = Start-Process -FilePath "build\ci-windows-release\tests\tst_preferencesdialog.exe" -ArgumentList "-v2" -NoNewWindow -Wait -PassThru `
-                -WorkingDirectory (Get-Location) -RedirectStandardOutput "preferencesdialog_stdout.txt" -RedirectStandardError "preferencesdialog_stderr.txt"
-          Write-Host "tst_preferencesdialog exit code: $($p2.ExitCode)"
-          Write-Host "--- stdout ---"; Get-Content "preferencesdialog_stdout.txt"
-          Write-Host "--- stderr ---"; Get-Content "preferencesdialog_stderr.txt"
+          & "build\ci-windows-release\tests\tst_preferencesdialog.exe"
+          Write-Host "Exit code: $LASTEXITCODE"
 
       - name: Deploy the Qt runtime next to the executable
         run: ./gui/packaging/windows/make-folder.ps1 -Build gui/build/ci-windows-release -Out dist/RevStudio
